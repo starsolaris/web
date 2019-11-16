@@ -1,11 +1,13 @@
 const path = require('path');
+const fs = require("fs");
+
 // A lame copy-paste from src/index.ts
 function getWebDependencyName(dep) {
   return dep.replace(/\.js$/, '');
 }
 
 function rewriteImport(imp, dir, shouldAddMissingExtension) {
-  const isSourceImport = imp.startsWith('/') || imp.startsWith('.')|| imp.startsWith('\\');
+  const isSourceImport = imp.startsWith('/') || imp.startsWith('.') || imp.startsWith('\\');
   const isRemoteimport = imp.startsWith('http://') || imp.startsWith('https://');
   dir = dir || 'web_modules';
   if (!isSourceImport && !isRemoteimport) {
@@ -14,6 +16,31 @@ function rewriteImport(imp, dir, shouldAddMissingExtension) {
   if (!isRemoteimport && shouldAddMissingExtension && !path.extname(imp)) {
     return imp + '.js';
   }
+
+  // try add .js
+  let join = path.posix.join(dir, imp + ".js");
+  let stat = null;
+  try {
+    stat = fs.statSync(join)
+  }
+  catch (e) {}
+
+  if (stat && stat.isFile()) {
+    return imp + ".js";
+  }
+
+  // try add index.js
+  join = path.posix.join(dir, "/index.js");
+  stat = null;
+  try {
+    stat = fs.statSync(join)
+  }
+  catch (e) {}
+
+  if (stat && stat.isFile()) {
+    return imp + "/index.js";
+  }
+
   return imp;
 }
 
@@ -44,18 +71,22 @@ module.exports = function pikaWebBabelTransform({types: t}, {optionalExtensions,
           t.stringLiteral(rewriteImport(source.node.value, dir, optionalExtensions)),
         );
       },
-      'ImportDeclaration|ExportNamedDeclaration|ExportAllDeclaration'(path, {file, opts}) {
-        const source = path.get('source');
+      'ImportDeclaration|ExportNamedDeclaration|ExportAllDeclaration'(localPath, {file, opts}) {
+        const source = localPath.get('source');
 
         // An export without a 'from' clause
         if (!source.node) {
           return;
         }
 
+        let sourcePath = dir;
+        if (source.node.value.startsWith("./")) {
+          sourcePath = path.dirname(file.opts.parserOpts.sourceFileName);
+        }
         source.replaceWith(
-          t.stringLiteral(rewriteImport(source.node.value, dir, optionalExtensions)),
+          t.stringLiteral(rewriteImport(source.node.value, sourcePath, optionalExtensions)),
         );
       },
     },
   };
-}
+};
